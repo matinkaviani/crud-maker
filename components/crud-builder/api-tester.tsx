@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { Play, Clock, CheckCircle, XCircle, Trash2 } from 'lucide-react'
+import { Play, Clock, CheckCircle, XCircle, Trash2, Filter, Plus, X } from 'lucide-react'
 import { useCRUDStore } from '@/lib/crud-store'
-import { type GeneratedEndpoint, type MockDataItem } from '@/lib/crud-types'
+import { type GeneratedEndpoint, type MockDataItem, type QueryParamDoc } from '@/lib/crud-types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,7 +11,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+
+interface QueryParam {
+  id: string
+  key: string
+  value: string
+}
 
 const methodColors: Record<string, string> = {
   GET: 'bg-method-get/10 text-method-get border-method-get/30',
@@ -31,8 +38,38 @@ export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
   const config = endpointConfigs[schemaId]
   
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
+  const [queryParams, setQueryParams] = useState<QueryParam[]>([])
   const [requestBody, setRequestBody] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  
+  const addQueryParam = () => {
+    setQueryParams([...queryParams, { id: crypto.randomUUID(), key: '', value: '' }])
+  }
+  
+  const updateQueryParam = (id: string, field: 'key' | 'value', newValue: string) => {
+    setQueryParams(queryParams.map((p) => 
+      p.id === id ? { ...p, [field]: newValue } : p
+    ))
+  }
+  
+  const removeQueryParam = (id: string) => {
+    setQueryParams(queryParams.filter((p) => p.id !== id))
+  }
+  
+  const addPresetParam = (param: QueryParamDoc) => {
+    setQueryParams([
+      ...queryParams,
+      { id: crypto.randomUUID(), key: param.name, value: param.example },
+    ])
+  }
+  
+  const buildQueryString = () => {
+    const validParams = queryParams.filter((p) => p.key && p.value)
+    if (validParams.length === 0) return ''
+    const searchParams = new URLSearchParams()
+    validParams.forEach((p) => searchParams.append(p.key, p.value))
+    return `?${searchParams.toString()}`
+  }
   
   if (!schema) return null
   
@@ -69,6 +106,11 @@ export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
     let path = selectedEndpoint.path
     if (path.includes(':id')) {
       path = path.replace(':id', encodeURIComponent(pathParams.id))
+    }
+    
+    // Add query parameters for GET requests
+    if (selectedEndpoint.method === 'GET') {
+      path += buildQueryString()
     }
 
     const init: RequestInit = {
@@ -187,6 +229,98 @@ export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
                     </Button>
                   )}
                 </div>
+              </div>
+            )}
+            
+            {/* Query Parameters for GET requests */}
+            {selectedEndpoint.method === 'GET' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2">
+                    <Filter className="w-4 h-4" />
+                    Query Parameters
+                  </Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={addQueryParam}
+                    className="gap-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add
+                  </Button>
+                </div>
+                
+                {/* Quick add from available params */}
+                {selectedEndpoint.queryParams && selectedEndpoint.queryParams.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {selectedEndpoint.queryParams.slice(0, 8).map((param) => (
+                      <Button
+                        key={param.name}
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={() => addPresetParam(param)}
+                      >
+                        {param.name}
+                      </Button>
+                    ))}
+                    {selectedEndpoint.queryParams.length > 8 && (
+                      <span className="text-xs text-muted-foreground self-center ml-1">
+                        +{selectedEndpoint.queryParams.length - 8} more
+                      </span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Query param inputs */}
+                {queryParams.length > 0 && (
+                  <div className="space-y-2">
+                    {queryParams.map((param) => (
+                      <div key={param.id} className="flex items-center gap-2">
+                        <Select
+                          value={param.key}
+                          onValueChange={(value) => updateQueryParam(param.id, 'key', value)}
+                        >
+                          <SelectTrigger className="w-[140px]">
+                            <SelectValue placeholder="Select param" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {selectedEndpoint.queryParams?.map((qp) => (
+                              <SelectItem key={qp.name} value={qp.name}>
+                                {qp.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <span className="text-muted-foreground">=</span>
+                        <Input
+                          value={param.value}
+                          onChange={(e) => updateQueryParam(param.id, 'value', e.target.value)}
+                          placeholder="Value"
+                          className="flex-1"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => removeQueryParam(param.id)}
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {/* Preview query string */}
+                {queryParams.some((p) => p.key && p.value) && (
+                  <div className="p-2 bg-secondary/30 rounded-md">
+                    <code className="text-xs text-muted-foreground break-all">
+                      {selectedEndpoint.path}{buildQueryString()}
+                    </code>
+                  </div>
+                )}
               </div>
             )}
             

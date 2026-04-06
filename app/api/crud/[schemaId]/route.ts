@@ -1,12 +1,32 @@
-import { readCollection, writeCollection, type CrudRecord } from '@/lib/server/crud-persistence'
+import { readCollection, writeCollection, filterRecords, type CrudRecord, type FilterParams } from '@/lib/server/crud-persistence'
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ schemaId: string }> }
 ) {
   const { schemaId } = await context.params
   const data = await readCollection(schemaId)
-  return Response.json({ data, total: data.length, page: 1, limit: 10 })
+  
+  // Parse query parameters for filtering
+  const url = new URL(request.url)
+  const params: FilterParams = {}
+  
+  url.searchParams.forEach((value, key) => {
+    // Handle multiple values for the same key (e.g., ?status=active&status=pending)
+    const existing = params[key]
+    if (existing) {
+      params[key] = Array.isArray(existing) 
+        ? [...existing, value] 
+        : [existing, value]
+    } else {
+      params[key] = value
+    }
+  })
+  
+  // Apply filtering, sorting, and pagination
+  const result = filterRecords(data, params)
+  
+  return Response.json(result)
 }
 
 export async function POST(

@@ -183,6 +183,26 @@ function EndpointItem({ endpoint, config, onConfigChange, onTest }: EndpointItem
               </div>
             </div>
             
+            {/* Query Parameters */}
+            {endpoint.queryParams && endpoint.queryParams.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs">Query Parameters</Label>
+                <div className="p-3 bg-background rounded-md border border-border space-y-2 max-h-48 overflow-y-auto">
+                  {endpoint.queryParams.map((param) => (
+                    <div key={param.name} className="flex items-start gap-2 text-xs">
+                      <code className="px-1.5 py-0.5 bg-secondary rounded font-mono text-primary whitespace-nowrap">
+                        {param.name}
+                      </code>
+                      <span className="text-muted-foreground">{param.description}</span>
+                      <span className="text-muted-foreground/60 ml-auto whitespace-nowrap">
+                        e.g. {param.example}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Response Example */}
             {endpoint.requestBody && (
               <div className="space-y-2">

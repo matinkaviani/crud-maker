@@ -39,6 +39,7 @@ export interface GeneratedEndpoint {
   configKey: keyof CRUDEndpoints
   requestBody?: object
   responseExample: object
+  queryParams?: QueryParamDoc[]
 }
 
 export interface MockDataItem {
@@ -111,17 +112,56 @@ export function generateMockData(schema: DTOSchema, count: number = 5): MockData
   })
 }
 
+export interface QueryParamDoc {
+  name: string
+  type: string
+  description: string
+  example: string
+}
+
 export function generateEndpoints(schema: DTOSchema): GeneratedEndpoint[] {
   /** Live HTTP routes (Next.js Route Handlers); logical basePath stays on the schema for documentation */
   const apiBase = `/api/crud/${schema.id}`
+
+  // Generate query param documentation based on schema fields
+  const queryParams: QueryParamDoc[] = [
+    { name: 'page', type: 'number', description: 'Page number for pagination', example: '1' },
+    { name: 'limit', type: 'number', description: 'Items per page (max 100)', example: '10' },
+    { name: 'search', type: 'string', description: 'Search across all string fields', example: 'term' },
+    { name: 'sortBy', type: 'string', description: 'Field to sort by', example: schema.fields[0]?.name || 'id' },
+    { name: 'sortOrder', type: 'string', description: 'Sort direction (asc/desc)', example: 'asc' },
+    ...schema.fields.map((field) => ({
+      name: field.name,
+      type: field.type,
+      description: `Filter by ${field.name} (exact match, comma-separated for OR)`,
+      example: String(generateMockValue(field.type, field.name)),
+    })),
+    ...schema.fields
+      .filter((f) => f.type === 'number' || f.type === 'date')
+      .flatMap((field) => [
+        {
+          name: `${field.name}_gte`,
+          type: field.type,
+          description: `${field.name} greater than or equal to`,
+          example: field.type === 'date' ? '2024-01-01' : '0',
+        },
+        {
+          name: `${field.name}_lte`,
+          type: field.type,
+          description: `${field.name} less than or equal to`,
+          example: field.type === 'date' ? '2024-12-31' : '1000',
+        },
+      ]),
+  ]
 
   return [
     {
       method: 'GET',
       path: apiBase,
-      description: `Get all ${schema.name} items (stored at ${apiBase})`,
+      description: `Get all ${schema.name} items with filtering, sorting, and pagination`,
       configKey: 'getAll',
-      responseExample: { data: [], total: 0, page: 1, limit: 10 },
+      responseExample: { data: [], total: 0, page: 1, limit: 10, totalPages: 0 },
+      queryParams,
     },
     {
       method: 'GET',
