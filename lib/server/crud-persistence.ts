@@ -23,6 +23,10 @@ export interface FilteredResult {
   page: number
   limit: number
   totalPages: number
+  /** Validation warnings for filter parameters (non-fatal) */
+  warnings?: string[]
+  /** Applied filters summary for debugging */
+  appliedFilters?: Record<string, string | string[]>
 }
 
 /**
@@ -42,13 +46,53 @@ export function filterRecords(
   params: FilterParams
 ): FilteredResult {
   let filtered = [...records]
+  const warnings: string[] = []
+  const appliedFilters: Record<string, string | string[]> = {}
 
   // Reserved params that aren't field filters
   const reservedParams = ['page', 'limit', 'sortBy', 'sortOrder', 'search']
+  
+  // Collect and validate date range parameters
+  const dateRangeParams: Record<string, { gte?: string; lte?: string; gt?: string; lt?: string }> = {}
+  
+  for (const [key, value] of Object.entries(params)) {
+    if (!value || reservedParams.includes(key)) continue
+    
+    const suffixes = ['_gte', '_lte', '_gt', '_lt'] as const
+    for (const suffix of suffixes) {
+      if (key.endsWith(suffix)) {
+        const fieldName = key.slice(0, -suffix.length)
+        const rangeKey = suffix.slice(1) as 'gte' | 'lte' | 'gt' | 'lt'
+        if (!dateRangeParams[fieldName]) {
+          dateRangeParams[fieldName] = {}
+        }
+        dateRangeParams[fieldName][rangeKey] = Array.isArray(value) ? value[0] : value
+      }
+    }
+  }
+  
+  // Validate date ranges
+  for (const [fieldName, range] of Object.entries(dateRangeParams)) {
+    const fromValue = range.gte || range.gt
+    const toValue = range.lte || range.lt
+    
+    // Check if both from and to look like dates and validate range
+    if (fromValue && toValue && (isDateLike(fromValue) || isDateLike(toValue))) {
+      const error = validateDateRange(fromValue, toValue)
+      if (error) {
+        warnings.push(`${fieldName}: ${error}`)
+      }
+    }
+  }
+  
+  function isDateLike(value: string): boolean {
+    return /^\d{4}-\d{2}-\d{2}/.test(value) || /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(value)
+  }
 
   // Global search across all string fields
   if (params.search) {
     const searchTerm = params.search.toLowerCase()
+    appliedFilters['search'] = params.search
     filtered = filtered.filter((record) =>
       Object.values(record).some((value) => {
         if (typeof value === 'string') {
@@ -69,43 +113,52 @@ export function filterRecords(
     // Handle range filters (field_gte, field_lte, field_gt, field_lt)
     if (key.endsWith('_gte')) {
       const fieldName = key.slice(0, -4)
+      const filterValue = Array.isArray(value) ? value[0] : value
+      appliedFilters[key] = filterValue
       filtered = filtered.filter((record) => {
         const fieldValue = record[fieldName]
         if (fieldValue === undefined || fieldValue === null) return false
-        return compareValues(fieldValue, value, '>=')
+        return compareValues(fieldValue, filterValue, '>=')
       })
       continue
     }
     if (key.endsWith('_lte')) {
       const fieldName = key.slice(0, -4)
+      const filterValue = Array.isArray(value) ? value[0] : value
+      appliedFilters[key] = filterValue
       filtered = filtered.filter((record) => {
         const fieldValue = record[fieldName]
         if (fieldValue === undefined || fieldValue === null) return false
-        return compareValues(fieldValue, value, '<=')
+        return compareValues(fieldValue, filterValue, '<=')
       })
       continue
     }
     if (key.endsWith('_gt')) {
       const fieldName = key.slice(0, -3)
+      const filterValue = Array.isArray(value) ? value[0] : value
+      appliedFilters[key] = filterValue
       filtered = filtered.filter((record) => {
         const fieldValue = record[fieldName]
         if (fieldValue === undefined || fieldValue === null) return false
-        return compareValues(fieldValue, value, '>')
+        return compareValues(fieldValue, filterValue, '>')
       })
       continue
     }
     if (key.endsWith('_lt')) {
       const fieldName = key.slice(0, -3)
+      const filterValue = Array.isArray(value) ? value[0] : value
+      appliedFilters[key] = filterValue
       filtered = filtered.filter((record) => {
         const fieldValue = record[fieldName]
         if (fieldValue === undefined || fieldValue === null) return false
-        return compareValues(fieldValue, value, '<')
+        return compareValues(fieldValue, filterValue, '<')
       })
       continue
     }
 
     // Handle exact match or multiple values (OR condition)
     const values = Array.isArray(value) ? value : value.split(',').map((v) => v.trim())
+    appliedFilters[key] = values.length === 1 ? values[0] : values
     
     filtered = filtered.filter((record) => {
       const fieldValue = record[key]
@@ -170,17 +223,43 @@ export function filterRecords(
 
   filtered = filtered.slice(startIndex, startIndex + limit)
 
-  return {
+  const result: FilteredResult = {
     data: filtered,
     total,
     page,
     limit,
     totalPages,
   }
+  
+  // Only include warnings if there are any
+  if (warnings.length > 0) {
+    result.warnings = warnings
+  }
+  
+  // Only include applied filters if any were used
+  if (Object.keys(appliedFilters).length > 0) {
+    result.appliedFilters = appliedFilters
+  }
+  
+  return result
 }
 
 function compareValues(fieldValue: unknown, compareValue: string, operator: '>=' | '<=' | '>' | '<'): boolean {
-  // Try to parse as number first
+  // Try date comparison first if either looks like a date
+  if (isDateString(fieldValue) || isDateString(compareValue)) {
+    const dateField = parseDateValue(String(fieldValue))
+    const dateCompare = parseDateValue(compareValue)
+    if (!isNaN(dateField) && !isNaN(dateCompare)) {
+      switch (operator) {
+        case '>=': return dateField >= dateCompare
+        case '<=': return dateField <= dateCompare
+        case '>': return dateField > dateCompare
+        case '<': return dateField < dateCompare
+      }
+    }
+  }
+
+  // Try to parse as number
   const numField = typeof fieldValue === 'number' ? fieldValue : parseFloat(String(fieldValue))
   const numCompare = parseFloat(compareValue)
 
@@ -190,20 +269,6 @@ function compareValues(fieldValue: unknown, compareValue: string, operator: '>='
       case '<=': return numField <= numCompare
       case '>': return numField > numCompare
       case '<': return numField < numCompare
-    }
-  }
-
-  // Try date comparison
-  if (isDateString(fieldValue) || isDateString(compareValue)) {
-    const dateField = new Date(String(fieldValue)).getTime()
-    const dateCompare = new Date(compareValue).getTime()
-    if (!isNaN(dateField) && !isNaN(dateCompare)) {
-      switch (operator) {
-        case '>=': return dateField >= dateCompare
-        case '<=': return dateField <= dateCompare
-        case '>': return dateField > dateCompare
-        case '<': return dateField < dateCompare
-      }
     }
   }
 
@@ -217,11 +282,80 @@ function compareValues(fieldValue: unknown, compareValue: string, operator: '>='
   }
 }
 
+/**
+ * Check if a value looks like a date string
+ * Supports multiple formats: ISO, US (MM/DD/YYYY), EU (DD/MM/YYYY), etc.
+ */
 function isDateString(value: unknown): boolean {
   if (typeof value !== 'string') return false
   // Check for ISO date format or common date patterns
   const isoPattern = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?/
-  return isoPattern.test(value)
+  const usPattern = /^\d{1,2}\/\d{1,2}\/\d{4}$/
+  const euPattern = /^\d{1,2}-\d{1,2}-\d{4}$/
+  return isoPattern.test(value) || usPattern.test(value) || euPattern.test(value)
+}
+
+/**
+ * Parse a date string into a timestamp, supporting multiple formats
+ * Returns NaN if the date is invalid
+ */
+function parseDateValue(value: string): number {
+  // Try ISO format first (YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss)
+  const isoPattern = /^\d{4}-\d{2}-\d{2}/
+  if (isoPattern.test(value)) {
+    return new Date(value).getTime()
+  }
+  
+  // Try US format (MM/DD/YYYY)
+  const usPattern = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
+  const usMatch = value.match(usPattern)
+  if (usMatch) {
+    const [, month, day, year] = usMatch
+    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day)).getTime()
+  }
+  
+  // Try EU format (DD-MM-YYYY)
+  const euPattern = /^(\d{1,2})-(\d{1,2})-(\d{4})$/
+  const euMatch = value.match(euPattern)
+  if (euMatch) {
+    const [, day, month, year] = euMatch
+    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day)).getTime()
+  }
+  
+  // Fallback to Date.parse
+  return Date.parse(value)
+}
+
+/**
+ * Validate a date range (from <= to)
+ * Returns an error message if invalid, null if valid
+ */
+export function validateDateRange(from: string | undefined, to: string | undefined): string | null {
+  if (!from && !to) return null
+  
+  if (from) {
+    const fromTime = parseDateValue(from)
+    if (isNaN(fromTime)) {
+      return `Invalid 'from' date format: ${from}. Use YYYY-MM-DD, MM/DD/YYYY, or DD-MM-YYYY`
+    }
+  }
+  
+  if (to) {
+    const toTime = parseDateValue(to)
+    if (isNaN(toTime)) {
+      return `Invalid 'to' date format: ${to}. Use YYYY-MM-DD, MM/DD/YYYY, or DD-MM-YYYY`
+    }
+  }
+  
+  if (from && to) {
+    const fromTime = parseDateValue(from)
+    const toTime = parseDateValue(to)
+    if (fromTime > toTime) {
+      return `Invalid date range: 'from' date (${from}) is after 'to' date (${to})`
+    }
+  }
+  
+  return null
 }
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'crud-mock')

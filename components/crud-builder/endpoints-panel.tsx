@@ -187,18 +187,62 @@ function EndpointItem({ endpoint, config, onConfigChange, onTest }: EndpointItem
             {endpoint.queryParams && endpoint.queryParams.length > 0 && (
               <div className="space-y-2">
                 <Label className="text-xs">Query Parameters</Label>
-                <div className="p-3 bg-background rounded-md border border-border space-y-2 max-h-48 overflow-y-auto">
-                  {endpoint.queryParams.map((param) => (
-                    <div key={param.name} className="flex items-start gap-2 text-xs">
-                      <code className="px-1.5 py-0.5 bg-secondary rounded font-mono text-primary whitespace-nowrap">
-                        {param.name}
-                      </code>
-                      <span className="text-muted-foreground">{param.description}</span>
-                      <span className="text-muted-foreground/60 ml-auto whitespace-nowrap">
-                        e.g. {param.example}
-                      </span>
-                    </div>
-                  ))}
+                <div className="p-3 bg-background rounded-md border border-border space-y-3 max-h-64 overflow-y-auto">
+                  {/* Group date range params together */}
+                  {(() => {
+                    const dateRangeFields = new Set<string>()
+                    endpoint.queryParams.forEach((p) => {
+                      if (p.name.endsWith('_gte') || p.name.endsWith('_lte')) {
+                        const fieldName = p.name.replace(/_gte$|_lte$/, '')
+                        dateRangeFields.add(fieldName)
+                      }
+                    })
+                    
+                    const regularParams = endpoint.queryParams.filter((p) => 
+                      !p.name.endsWith('_gte') && !p.name.endsWith('_lte')
+                    )
+                    
+                    return (
+                      <>
+                        {/* Regular params */}
+                        {regularParams.map((param) => (
+                          <div key={param.name} className="flex items-start gap-2 text-xs">
+                            <code className="px-1.5 py-0.5 bg-secondary rounded font-mono text-primary whitespace-nowrap">
+                              {param.name}
+                            </code>
+                            <span className="text-muted-foreground">{param.description}</span>
+                            <span className="text-muted-foreground/60 ml-auto whitespace-nowrap">
+                              e.g. {param.example}
+                            </span>
+                          </div>
+                        ))}
+                        
+                        {/* Date range params grouped */}
+                        {dateRangeFields.size > 0 && (
+                          <div className="pt-2 border-t border-border/50 space-y-2">
+                            <span className="text-xs font-medium text-muted-foreground">Date Range Filters:</span>
+                            {Array.from(dateRangeFields).map((fieldName) => (
+                              <div key={fieldName} className="flex items-start gap-2 text-xs pl-2">
+                                <div className="flex items-center gap-1">
+                                  <code className="px-1.5 py-0.5 bg-secondary rounded font-mono text-primary whitespace-nowrap">
+                                    {fieldName}_gte
+                                  </code>
+                                  <span className="text-muted-foreground">to</span>
+                                  <code className="px-1.5 py-0.5 bg-secondary rounded font-mono text-primary whitespace-nowrap">
+                                    {fieldName}_lte
+                                  </code>
+                                </div>
+                                <span className="text-muted-foreground">Filter by {fieldName} date range</span>
+                                <span className="text-muted-foreground/60 ml-auto whitespace-nowrap">
+                                  e.g. 2024-01-01 to 2024-12-31
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
             )}

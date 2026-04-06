@@ -63,6 +63,26 @@ export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
     ])
   }
   
+  const addDateRangeParams = (fieldName: string) => {
+    // Add both _gte and _lte params for date range filtering
+    const today = new Date()
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
+    
+    setQueryParams([
+      ...queryParams,
+      { id: crypto.randomUUID(), key: `${fieldName}_gte`, value: thirtyDaysAgo.toISOString().split('T')[0] },
+      { id: crypto.randomUUID(), key: `${fieldName}_lte`, value: today.toISOString().split('T')[0] },
+    ])
+  }
+  
+  // Get date fields from queryParams for quick date range buttons
+  const getDateFields = () => {
+    if (!selectedEndpoint?.queryParams) return []
+    return selectedEndpoint.queryParams
+      .filter((p) => p.type === 'date' && !p.name.includes('_'))
+      .map((p) => p.name)
+  }
+  
   const buildQueryString = () => {
     const validParams = queryParams.filter((p) => p.key && p.value)
     if (validParams.length === 0) return ''
@@ -251,65 +271,97 @@ export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
                   </Button>
                 </div>
                 
+                {/* Date range quick add */}
+                {getDateFields().length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-xs text-muted-foreground">Date Range Filters:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {getDateFields().map((fieldName) => (
+                        <Button
+                          key={`range-${fieldName}`}
+                          variant="secondary"
+                          size="sm"
+                          className="h-6 text-xs gap-1"
+                          onClick={() => addDateRangeParams(fieldName)}
+                        >
+                          <Clock className="w-3 h-3" />
+                          {fieldName} (last 30 days)
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Quick add from available params */}
                 {selectedEndpoint.queryParams && selectedEndpoint.queryParams.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {selectedEndpoint.queryParams.slice(0, 8).map((param) => (
-                      <Button
-                        key={param.name}
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={() => addPresetParam(param)}
-                      >
-                        {param.name}
-                      </Button>
-                    ))}
-                    {selectedEndpoint.queryParams.length > 8 && (
-                      <span className="text-xs text-muted-foreground self-center ml-1">
-                        +{selectedEndpoint.queryParams.length - 8} more
-                      </span>
-                    )}
+                  <div className="space-y-1.5">
+                    <span className="text-xs text-muted-foreground">Field Filters:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedEndpoint.queryParams.slice(0, 8).map((param) => (
+                        <Button
+                          key={param.name}
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => addPresetParam(param)}
+                        >
+                          {param.name}
+                        </Button>
+                      ))}
+                      {selectedEndpoint.queryParams.length > 8 && (
+                        <span className="text-xs text-muted-foreground self-center ml-1">
+                          +{selectedEndpoint.queryParams.length - 8} more
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
                 
                 {/* Query param inputs */}
                 {queryParams.length > 0 && (
                   <div className="space-y-2">
-                    {queryParams.map((param) => (
-                      <div key={param.id} className="flex items-center gap-2">
-                        <Select
-                          value={param.key}
-                          onValueChange={(value) => updateQueryParam(param.id, 'key', value)}
-                        >
-                          <SelectTrigger className="w-[140px]">
-                            <SelectValue placeholder="Select param" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {selectedEndpoint.queryParams?.map((qp) => (
-                              <SelectItem key={qp.name} value={qp.name}>
-                                {qp.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <span className="text-muted-foreground">=</span>
-                        <Input
-                          value={param.value}
-                          onChange={(e) => updateQueryParam(param.id, 'value', e.target.value)}
-                          placeholder="Value"
-                          className="flex-1"
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => removeQueryParam(param.id)}
-                          className="text-muted-foreground hover:text-destructive"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
+                    {queryParams.map((param) => {
+                      // Check if this is a date-related param
+                      const isDateParam = param.key.endsWith('_gte') || param.key.endsWith('_lte') ||
+                        param.key.endsWith('_gt') || param.key.endsWith('_lt') ||
+                        selectedEndpoint.queryParams?.find((qp) => qp.name === param.key)?.type === 'date'
+                      
+                      return (
+                        <div key={param.id} className="flex items-center gap-2">
+                          <Select
+                            value={param.key}
+                            onValueChange={(value) => updateQueryParam(param.id, 'key', value)}
+                          >
+                            <SelectTrigger className="w-[140px]">
+                              <SelectValue placeholder="Select param" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {selectedEndpoint.queryParams?.map((qp) => (
+                                <SelectItem key={qp.name} value={qp.name}>
+                                  {qp.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <span className="text-muted-foreground">=</span>
+                          <Input
+                            type={isDateParam ? 'date' : 'text'}
+                            value={param.value}
+                            onChange={(e) => updateQueryParam(param.id, 'value', e.target.value)}
+                            placeholder={isDateParam ? 'YYYY-MM-DD' : 'Value'}
+                            className="flex-1"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => removeQueryParam(param.id)}
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
                 
