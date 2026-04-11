@@ -1,12 +1,20 @@
-import { readCollection, writeCollection, type CrudRecord } from '@/lib/server/crud-persistence'
+import { readStoredPayload, writeStoredPayload } from '@/lib/server/crud-persistence'
+import { recordsFromPayload, writeRecordsToPayload, type CrudRecord } from '@/lib/crud-payload'
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ schemaId: string; id: string }> }
 ) {
   const { schemaId, id } = await context.params
-  const items = await readCollection(schemaId)
-  const item = items.find((d) => d.id === id)
+  const current = await readStoredPayload(schemaId)
+  const records = recordsFromPayload(current)
+  if (!records) {
+    return Response.json(
+      { error: 'Not supported', message: 'GET by id requires list or single-object mock data with id' },
+      { status: 404 }
+    )
+  }
+  const item = records.find((d) => d.id === id)
   if (!item) {
     return Response.json(
       { error: 'Not found', message: `Item with id ${id} not found` },
@@ -31,8 +39,16 @@ export async function PUT(
     )
   }
 
-  const items = await readCollection(schemaId)
-  const idx = items.findIndex((d) => d.id === id)
+  const current = await readStoredPayload(schemaId)
+  const records = recordsFromPayload(current)
+  if (!records) {
+    return Response.json(
+      { error: 'Not supported', message: 'PUT by id requires list or single-object mock data with id' },
+      { status: 400 }
+    )
+  }
+
+  const idx = records.findIndex((d) => d.id === id)
   if (idx === -1) {
     return Response.json(
       { error: 'Not found', message: `Item with id ${id} not found` },
@@ -40,9 +56,11 @@ export async function PUT(
     )
   }
 
-  const merged: CrudRecord = { ...items[idx], ...body, id }
-  items[idx] = merged
-  await writeCollection(schemaId, items)
+  const merged: CrudRecord = { ...records[idx], ...body, id }
+  const next = [...records]
+  next[idx] = merged
+  const stored = writeRecordsToPayload(current, next)
+  await writeStoredPayload(schemaId, stored)
 
   return Response.json({ data: merged, message: 'Updated successfully' })
 }
@@ -52,14 +70,23 @@ export async function DELETE(
   context: { params: Promise<{ schemaId: string; id: string }> }
 ) {
   const { schemaId, id } = await context.params
-  const items = await readCollection(schemaId)
-  const next = items.filter((d) => d.id !== id)
-  if (next.length === items.length) {
+  const current = await readStoredPayload(schemaId)
+  const records = recordsFromPayload(current)
+  if (!records) {
+    return Response.json(
+      { error: 'Not supported', message: 'DELETE by id requires list or single-object mock data with id' },
+      { status: 400 }
+    )
+  }
+
+  const next = records.filter((d) => d.id !== id)
+  if (next.length === records.length) {
     return Response.json(
       { error: 'Not found', message: `Item with id ${id} not found` },
       { status: 404 }
     )
   }
-  await writeCollection(schemaId, next)
+  const stored = writeRecordsToPayload(current, next)
+  await writeStoredPayload(schemaId, stored)
   return Response.json({ message: 'Deleted successfully' })
 }

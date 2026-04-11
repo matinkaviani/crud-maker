@@ -119,16 +119,21 @@ export function generateEndpoints(schema: DTOSchema): GeneratedEndpoint[] {
     {
       method: 'GET',
       path: apiBase,
-      description: `Get all ${schema.name} items (stored at ${apiBase})`,
+      description: `Get stored mock JSON for ${schema.name} at ${apiBase} — \`data\` may be an array, a single object, a primitive, etc.`,
       configKey: 'getAll',
-      responseExample: { data: [], total: 0, page: 1, limit: 10 },
+      responseExample: {
+        data: [] as unknown,
+        total: 0,
+        page: 1,
+        limit: 10,
+      },
     },
     {
       method: 'GET',
       path: `${apiBase}/:id`,
-      description: `Get a single ${schema.name} by ID`,
+      description: `Get one record by id when mock data is an id-keyed list or a single object with that id`,
       configKey: 'getById',
-      responseExample: { data: null },
+      responseExample: { data: null as unknown },
     },
     {
       method: 'POST',

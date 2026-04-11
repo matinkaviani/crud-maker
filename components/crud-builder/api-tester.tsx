@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Play, Clock, CheckCircle, XCircle, Trash2 } from 'lucide-react'
 import { useCRUDStore } from '@/lib/crud-store'
 import { type GeneratedEndpoint, type MockDataItem } from '@/lib/crud-types'
+import { recordsFromPayload } from '@/lib/crud-payload'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -26,7 +27,17 @@ interface APITesterProps {
 }
 
 export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
-  const { schemas, mockData, endpointConfigs, addTestResult, testResults, clearTestResults, addMockItem, updateMockItem, deleteMockItem } = useCRUDStore()
+  const {
+    schemas,
+    mockData,
+    endpointConfigs,
+    addTestResult,
+    testResults,
+    clearTestResults,
+    addMockItem,
+    updateMockItem,
+    deleteMockItem,
+  } = useCRUDStore()
   const schema = schemas.find((s) => s.id === schemaId)
   const config = endpointConfigs[schemaId]
   
@@ -36,7 +47,12 @@ export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
   
   if (!schema) return null
   
-  const data = mockData[schemaId] || []
+  const payload = mockData[schemaId]
+  const crudRecords = recordsFromPayload(payload)
+  const firstId = crudRecords?.[0]?.id
+
+  const collectionSyncAllowed = () =>
+    recordsFromPayload(useCRUDStore.getState().mockData[schemaId]) != null
   
   const executeRequest = async () => {
     if (!selectedEndpoint) return
@@ -98,13 +114,18 @@ export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
         response,
       })
 
-      if (res.ok) {
+      if (res.ok && collectionSyncAllowed()) {
         const key = selectedEndpoint.configKey
         if (key === 'create' && response && typeof response === 'object' && 'data' in response) {
-          addMockItem(schemaId, (response as { data: MockDataItem }).data)
+          const d = (response as { data: unknown }).data
+          if (d && typeof d === 'object' && !Array.isArray(d) && typeof (d as MockDataItem).id === 'string') {
+            addMockItem(schemaId, d as MockDataItem)
+          }
         } else if (key === 'update' && response && typeof response === 'object' && 'data' in response) {
-          const d = (response as { data: MockDataItem }).data
-          updateMockItem(schemaId, d.id, d)
+          const d = (response as { data: unknown }).data
+          if (d && typeof d === 'object' && !Array.isArray(d) && typeof (d as MockDataItem).id === 'string') {
+            updateMockItem(schemaId, (d as MockDataItem).id, d as MockDataItem)
+          }
         } else if (key === 'delete') {
           deleteMockItem(schemaId, pathParams.id)
         }
@@ -131,9 +152,10 @@ export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
           <div>
             <CardTitle className="text-lg">API Tester</CardTitle>
             <CardDescription>
-              Sends real HTTP requests to this app&apos;s Route Handlers. Mock data from the builder is
-              synced to the server when you load the app or change mock rows, so GET matches the Mock Data
-              tab.
+              Sends real HTTP requests to this app&apos;s Route Handlers. Mock data is synced when you load
+              the app or change the Mock Data tab (table rows or JSON). GET returns whatever JSON you
+              stored; row-style CRUD sync only applies when the mock is an id-keyed list or one object
+              with id.
             </CardDescription>
           </div>
           {testResults.length > 0 && (
@@ -177,11 +199,11 @@ export function APITester({ schemaId, selectedEndpoint }: APITesterProps) {
                     placeholder="Enter ID"
                     className="flex-1"
                   />
-                  {data.length > 0 && (
+                  {firstId && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setPathParams({ ...pathParams, id: data[0].id })}
+                      onClick={() => setPathParams({ ...pathParams, id: firstId })}
                     >
                       Use First
                     </Button>

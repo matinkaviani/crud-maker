@@ -1,8 +1,6 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 
-export type CrudRecord = Record<string, unknown> & { id: string }
-
 const DATA_DIR = path.join(process.cwd(), 'data', 'crud-mock')
 
 async function ensureDir() {
@@ -13,13 +11,12 @@ function filePath(schemaId: string) {
   return path.join(DATA_DIR, `${schemaId}.json`)
 }
 
-export async function readCollection(schemaId: string): Promise<CrudRecord[]> {
+/** Read whatever JSON was last synced (array, object, primitive, …). */
+export async function readStoredPayload(schemaId: string): Promise<unknown> {
   await ensureDir()
   try {
     const raw = await fs.readFile(filePath(schemaId), 'utf-8')
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed as CrudRecord[]
+    return JSON.parse(raw) as unknown
   } catch (e: unknown) {
     const code = (e as NodeJS.ErrnoException).code
     if (code === 'ENOENT') return []
@@ -27,7 +24,7 @@ export async function readCollection(schemaId: string): Promise<CrudRecord[]> {
   }
 }
 
-export async function writeCollection(schemaId: string, items: CrudRecord[]): Promise<void> {
+export async function writeStoredPayload(schemaId: string, value: unknown): Promise<void> {
   await ensureDir()
-  await fs.writeFile(filePath(schemaId), JSON.stringify(items, null, 2), 'utf-8')
+  await fs.writeFile(filePath(schemaId), JSON.stringify(value, null, 2), 'utf-8')
 }

@@ -1,12 +1,18 @@
-import { readCollection, writeCollection, type CrudRecord } from '@/lib/server/crud-persistence'
+import { readStoredPayload, writeStoredPayload } from '@/lib/server/crud-persistence'
+import { recordsFromPayload, writeRecordsToPayload, type CrudRecord } from '@/lib/crud-payload'
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ schemaId: string }> }
 ) {
   const { schemaId } = await context.params
-  const data = await readCollection(schemaId)
-  return Response.json({ data, total: data.length, page: 1, limit: 10 })
+  const data = await readStoredPayload(schemaId)
+  const body: Record<string, unknown> = { data }
+  if (Array.isArray(data)) body.total = data.length
+  else if (data !== null && typeof data === 'object') body.total = 1
+  body.page = 1
+  body.limit = 10
+  return Response.json(body)
 }
 
 export async function POST(
@@ -24,13 +30,26 @@ export async function POST(
     )
   }
 
+  const current = await readStoredPayload(schemaId)
+  const records = recordsFromPayload(current)
+  if (!records) {
+    return Response.json(
+      {
+        error: 'Unsupported payload',
+        message:
+          'POST /create is only available when mock data is an array of objects with string id, or a single object with id',
+      },
+      { status: 400 }
+    )
+  }
+
   const id = typeof body.id === 'string' && body.id.length > 0 ? body.id : crypto.randomUUID()
   const { id: _drop, ...rest } = body
   const newItem: CrudRecord = { ...rest, id }
 
-  const items = await readCollection(schemaId)
-  items.push(newItem)
-  await writeCollection(schemaId, items)
+  const next = [...records, newItem]
+  const stored = writeRecordsToPayload(current, next)
+  await writeStoredPayload(schemaId, stored)
 
   return Response.json({ data: newItem, message: 'Created successfully' }, { status: 201 })
 }
